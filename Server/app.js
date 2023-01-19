@@ -3,9 +3,9 @@ const app = express();
 const { Server } = require("socket.io");
 
 // Dotenv
-const dotenv=require('dotenv');
+const dotenv = require("dotenv");
 dotenv.config();
- 
+
 // Database
 const sequelize = require("./util/database");
 
@@ -29,78 +29,68 @@ const users = {};
 
 // Socket IO Code for Connection and Message Sending System
 io.on("connection", async (socket) => {
-  // For New User in Room(Live User)
-  socket.on("new-user-join", async (obj) => {
-    users[socket.id] = obj;
+  try {
+    socket.on("new-user-join", async (obj) => {
+      users[socket.id] = obj;
 
-    try {
       const userExist = await User.findOne({ where: { email: obj.email } });
       if (userExist) {
         // Send to all user in root except current requested user.
         socket.broadcast.emit("user-joined", obj.name);
 
-        try {
-          const oldMessage = await Message.findAll({ include: [User] });
+        const oldMessage = await Message.findAll({ include: [User] });
 
+        // Sending old messages to requested user.
+        io.to(socket.id).emit("oldMessages", oldMessage);
+      } else {
+        const create = await User.create({
+          username: obj.name,
+          email: obj.email,
+        });
+        if (create) {
+          socket.broadcast.emit("user-joined", obj.name);
+
+          const oldMessage = await Message.findAll({ include: [User] });
           // Sending old messages to requested user.
           io.to(socket.id).emit("oldMessages", oldMessage);
-        } catch (err) {
-          console.log(err, "User Joined Error ----------- ");
-          io.to(socket.id).emit('error',err);
-        }
-      } else {
-        try {
-          const create = await User.create({
-            username: obj.name,
-            email: obj.email,
-          });
-          socket.broadcast.emit("user-joined", obj.name);
-          try {
-            const oldMessage = await Message.findAll({ include: [User] });
-
-            io.to(socket.id).emit("oldMessages", oldMessage);
-          } catch (err) {
-            console.log(err, "User Joined Error ----------- ");
-            io.to(socket.id).emit('error',err);
-          }
-        } catch (err) {
-          console.log(err);
-          io.to(socket.id).emit('error',err);
+        } else {
+          throw "Error in user creating";
         }
       }
-    } catch (err) {
-      console.log(err);
-      io.to(socket.id).emit('error',err);
-    }
-  });
-
-  socket.on("send", async (message) => {
-    try {
+    });
+    // Receive message from user
+    socket.on("send", async (message) => {
       const fatchingUser = await User.findOne({
         where: { email: users[socket.id].email },
       });
-
-      const messageStore = await Message.create({
-        message: message,
-        userId: fatchingUser.dataValues.id,
-      });
-
-      if (messageStore) {
-        socket.broadcast.emit("receive", {
+      if (fatchingUser) {
+        //store new message into database
+        const messageStore = await Message.create({
           message: message,
-          name: fatchingUser.dataValues.username,
+          userId: fatchingUser.dataValues.id,
         });
-      }
-    } catch (err) {
-      console.log(err);
-      io.to(socket.id).emit('error',err);
-    }
-  });
 
-  socket.on("disconnect", (user) => {
-    socket.broadcast.emit("left", { data: users[socket.id] });
-    delete users[socket.id];
-  });
+        if (messageStore) {
+          //Sending message to user
+          socket.broadcast.emit("receive", {
+            message: message,
+            name: fatchingUser.dataValues.username,
+          });
+        } else {
+          throw "Message can not store in database";
+        }
+      } else {
+        throw "can not send message";
+      }
+    });
+    //Disconnect user
+    socket.on("disconnect", (user) => {
+      socket.broadcast.emit("left", { data: users[socket.id] });
+      delete users[socket.id];
+    });
+  } catch (err) {
+    io.to(socket.id).emit("error", err);
+  }
 });
 
 // Database sync and server listen port

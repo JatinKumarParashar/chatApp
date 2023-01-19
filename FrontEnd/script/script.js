@@ -51,7 +51,7 @@ const sendMessage = (event) => {
   event.preventDefault();
   const message = event.target.message.value;
   append(`You : ${message}`);
-  socket.emit("sand", message);
+  socket.emit("send", message);
   event.target.message.value = "";
 };
 
