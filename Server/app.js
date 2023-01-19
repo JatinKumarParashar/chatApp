@@ -46,6 +46,7 @@ io.on("connection", async (socket) => {
           io.to(socket.id).emit("oldMessages", oldMessage);
         } catch (err) {
           console.log(err, "User Joined Error ----------- ");
+          io.to(socket.id).emit('error',err);
         }
       } else {
         try {
@@ -60,13 +61,16 @@ io.on("connection", async (socket) => {
             io.to(socket.id).emit("oldMessages", oldMessage);
           } catch (err) {
             console.log(err, "User Joined Error ----------- ");
+            io.to(socket.id).emit('error',err);
           }
         } catch (err) {
           console.log(err);
+          io.to(socket.id).emit('error',err);
         }
       }
     } catch (err) {
       console.log(err);
+      io.to(socket.id).emit('error',err);
     }
   });
 
@@ -89,6 +93,7 @@ io.on("connection", async (socket) => {
       }
     } catch (err) {
       console.log(err);
+      io.to(socket.id).emit('error',err);
     }
   });
 
