@@ -20,6 +20,8 @@ const io = new Server(http, {
   },
 });
 
+const { userConnection, receiveMessage, userDisconnect } = require("./sockets");
+
 // Models
 const User = require("./models/user");
 const Message = require("./models/message");
@@ -29,68 +31,9 @@ const users = {};
 
 // Socket IO Code for Connection and Message Sending System
 io.on("connection", async (socket) => {
-  try {
-    socket.on("new-user-join", async (obj) => {
-      users[socket.id] = obj;
-
-      const userExist = await User.findOne({ where: { email: obj.email } });
-      if (userExist) {
-        // Send to all user in root except current requested user.
-        socket.broadcast.emit("user-joined", obj.name);
-
-        const oldMessage = await Message.findAll({ include: [User] });
-
-        // Sending old messages to requested user.
-        io.to(socket.id).emit("oldMessages", oldMessage);
-      } else {
-        const create = await User.create({
-          username: obj.name,
-          email: obj.email,
-        });
-        if (create) {
-          socket.broadcast.emit("user-joined", obj.name);
-
-          const oldMessage = await Message.findAll({ include: [User] });
-          // Sending old messages to requested user.
-          io.to(socket.id).emit("oldMessages", oldMessage);
-        } else {
-          throw "Error in user creating";
-        }
-      }
-    });
-    // Receive message from user
-    socket.on("send", async (message) => {
-      const fatchingUser = await User.findOne({
-        where: { email: users[socket.id].email },
-      });
-      if (fatchingUser) {
-        //store new message into database
-        const messageStore = await Message.create({
-          message: message,
-          userId: fatchingUser.dataValues.id,
-        });
-
-        if (messageStore) {
-          //Sending message to user
-          socket.broadcast.emit("receive", {
-            message: message,
-            name: fatchingUser.dataValues.username,
-          });
-        } else {
-          throw "Message can not store in database";
-        }
-      } else {
-        throw "can not send message";
-      }
-    });
-    //Disconnect user
-    socket.on("disconnect", (user) => {
-      socket.broadcast.emit("left", { data: users[socket.id] });
-      delete users[socket.id];
-    });
-  } catch (err) {
-    io.to(socket.id).emit("error", err);
-  }
+  userConnection(io, socket, users);
+  receiveMessage(io, socket, users);
+  userDisconnect(io, socket, users);
 });
 
 // Database sync and server listen port
