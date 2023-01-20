@@ -2,6 +2,7 @@ const express = require("express");
 const app = express();
 const { Server } = require("socket.io");
 
+
 // Dotenv
 const dotenv = require("dotenv");
 dotenv.config();
@@ -20,7 +21,12 @@ const io = new Server(http, {
   },
 });
 
-const { userConnection, receiveMessage, userDisconnect } = require("./sockets");
+const {
+  userConnection,
+  receiveMessage,
+  userDisconnect,
+  newUserSignup,
+} = require("./sockets");
 
 // Models
 const User = require("./models/user");
@@ -31,6 +37,7 @@ const users = {};
 
 // Socket IO Code for Connection and Message Sending System
 io.on("connection", async (socket) => {
+  newUserSignup(io, socket, users);
   userConnection(io, socket, users);
   receiveMessage(io, socket, users);
   userDisconnect(io, socket, users);

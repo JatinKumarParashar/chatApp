@@ -1,35 +1,79 @@
 const User = require("./models/user");
 const Message = require("./models/message");
+const bcrypt = require("bcrypt");
+const jwt = require("jsonwebtoken");
 
-exports.userConnection = (io, socket, users) => {
+// Generate jsonwebtoken for user
+function generateAccessToken(id) {
+  return jwt.sign(
+    {
+      user: id,
+    },
+    process.env.SCREATE_KEY_FOR_TOKEN
+  );
+}
+
+// New user signup
+exports.newUserSignup = async (io, socket, users) => {
+  const signupHandler = (obj) => {
+    try {
+      // Encrypt the password
+      bcrypt.hash(obj.password, 10, async (err, hash) => {
+        const createUser = await User.create({
+          username: obj.username,
+          email: obj.email,
+          password: hash,
+        });
+        if (createUser) {
+          io.to(socket.id).emit("signupSuccess", "signup Successfully");
+        } else {
+          throw "Unable to create user";
+        }
+      });
+    } catch (err) {
+      io.to(socket.id).emit("error", err);
+    }
+  };
+  socket.on("signup", signupHandler);
+};
+
+// Login user
+exports.userConnection = async (io, socket, users) => {
   const connectionHandler = async (obj) => {
     users[socket.id] = obj;
     try {
       const userExist = await User.findOne({ where: { email: obj.email } });
+      users[socket.id] = userExist.dataValues;
       if (userExist) {
-        // Send to all user in root except current requested user.
-        socket.broadcast.emit("user-joined", obj.name);
+        // Compare user password
+        bcrypt.compare(
+          obj.password,
+          userExist.dataValues.password,
+          async (err, result) => {
+            if (result == true) {
+              socket.broadcast.emit(
+                "user-joined",
+                userExist.dataValues.username
+              );
 
-        const oldMessage = await Message.findAll({ include: [User] });
+              const oldMessage = await Message.findAll({ include: [User] });
 
-        // Sending old messages to requested user.
-        io.to(socket.id).emit("oldMessages", oldMessage);
+              // Sending old messages to requested user.
+              io.to(socket.id).emit("loginSuccess", {
+                oldMessage: oldMessage,
+                // Send login token
+                token: generateAccessToken(userExist.dataValues.id),
+              });
+            } else {
+              throw "password incorrect";
+            }
+          }
+        );
       } else {
-        const create = await User.create({
-          username: obj.name,
-          email: obj.email,
-        });
-        if (create) {
-          socket.broadcast.emit("user-joined", obj.name);
-
-          const oldMessage = await Message.findAll({ include: [User] });
-          // Sending old messages to requested user.
-          io.to(socket.id).emit("oldMessages", oldMessage);
-        } else {
-          throw "Error in user creating";
-        }
+        throw "user does not exist";
       }
     } catch (err) {
+      // Send Error to User
       io.to(socket.id).emit("error", err);
     }
   };
@@ -37,22 +81,23 @@ exports.userConnection = (io, socket, users) => {
 };
 
 exports.receiveMessage = (io, socket, users) => {
-  const receiveHandler = async (message) => {
+  const receiveHandler = async (obj) => {
     try {
-      const fatchingUser = await User.findOne({
-        where: { email: users[socket.id].email },
-      });
+      // Verify user token
+      const userId = jwt.verify(obj.token, process.env.SCREATE_KEY_FOR_TOKEN);
+      console.log(userId.user, "-----user id from token");
+      const fatchingUser = await User.findByPk(userId.user);
       if (fatchingUser) {
         //store new message into database
         const messageStore = await Message.create({
-          message: message,
+          message: obj.message,
           userId: fatchingUser.dataValues.id,
         });
 
         if (messageStore) {
           //Sending message to user
           socket.broadcast.emit("receive", {
-            message: message,
+            message: obj.message,
             name: fatchingUser.dataValues.username,
           });
         } else {
@@ -70,6 +115,7 @@ exports.receiveMessage = (io, socket, users) => {
 
 exports.userDisconnect = (io, socket, users) => {
   try {
+    // Disconnect user
     socket.on("disconnect", (user) => {
       socket.broadcast.emit("left", { data: users[socket.id] });
       delete users[socket.id];
