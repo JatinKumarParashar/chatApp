@@ -17,3 +17,5 @@
 - Cors
 - Dotenv
 - Nodemon
+- bcrypt for encrypt the password of user
+- jwt for generate token for user login
